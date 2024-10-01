@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.8.22"
-app = marimo.App(width="medium", app_title="Bevölkerung Bremen")
+app = marimo.App(width="medium", app_title="Population in Bremen")
 
 
 @app.cell
@@ -14,13 +14,10 @@ def __():
 
 
 @app.cell
-def __(mo):
+def __(datasource_dict, mo):
     year_selection = mo.ui.dropdown(
-        options=[
-            "2023",
-            "2022",
-        ],
-        value="2023",
+        options=list(datasource_dict.keys()),
+        value=list(datasource_dict.keys())[0],
         label="Choose year",
     )
     return (year_selection,)
@@ -111,14 +108,21 @@ def __(df, mo, territory_radio):
 def __():
     datasource_dict = {
         "2023": "./data/raw/12411-03-03-2023.csv",
-        "2022": "./data/raw/12411-03-03-2022.csv",
+        "2022": "./data/raw/12411-03-03-2022.csv",    
+        "2021": "./data/raw/12411-03-03-2021.csv",
+        "2020": "./data/raw/12411-03-03-2020.csv",
+        "2010": "./data/raw/12411-03-03-2010.csv",
+        "2000": "./data/raw/12411-03-03-2000.csv",
+        "1990": "./data/raw/12411-03-03-1990.csv",
+        "1980": "./data/raw/12411-03-03-1980.csv",
     }
 
 
     map_feature_dict = {
-        "Percentage of foreigners": "percentage_foreigner",
         "Total population": "population_total",
+        "Percentage of foreigners": "percentage_foreigner",
         "Percentage of males": "percentage_male",
+        "Percentage of females": "percentage_female",
     }
     return datasource_dict, map_feature_dict
 
@@ -759,12 +763,20 @@ def __(
         .mark_geoshape(stroke="green", strokeWidth=0.5)
         .project(type="identity", reflectY=True)
         .encode(
-            color=f"{map_feature_dict[map_feature.value]}:Q",
+            color=alt.Color(
+                f"{map_feature_dict[map_feature.value]}:Q",
+                legend=alt.Legend(title=map_feature.value),
+                scale=alt.Scale(type="linear"),
+            ),
             tooltip=[
-                f"bez_{bz}:N",
-                "size:Q",
-                "population_total:Q",
-                "percentage:Q",
+                alt.Tooltip(f"bez_{bz}:N", title=territory_radio.value),
+                alt.Tooltip("size:Q", title="Area (qkm)", format=".2f"),
+                alt.Tooltip("population_total:Q", title="Total population"),
+                alt.Tooltip(
+                    f"{map_feature_dict[map_feature.value]}:Q",
+                    title=map_feature.value,
+                    format=".2f",
+                ),
             ],
         )
         .transform_lookup(
@@ -776,14 +788,13 @@ def __(
                     "percentage_foreigner",
                     "percentage_male",
                     "population_total",
+                    "percentage_female",
                 ],
             ),
         )
         .properties(title=f"{territory_radio.value}e", width=600, height=400)
     )
     map = mo.ui.altair_chart(_chart)
-
-    # mo.hstack([_chart, map_feature], justify="start", widths=[3, 1])
     return bz, map
 
 
@@ -798,7 +809,7 @@ def __(map_feature_dict, mo):
 
 
 @app.cell
-def __(df, gdf_ne, pd, territory_radio):
+def __(df, territory_radio):
     map_info = (
         df.query(f"territorial_unit.str.contains('{territory_radio.value}')")
         .groupby(by=["territorial_unit"])
@@ -810,6 +821,11 @@ def __(df, gdf_ne, pd, territory_radio):
         )
         .assign(
             percentage_male=lambda x: 100 / x.population_total * x.population_male
+        )
+        .assign(
+            percentage_female=lambda x: 100
+            / x.population_total
+            * x.population_female
         )
         .reset_index()
     )
@@ -824,11 +840,7 @@ def __(df, gdf_ne, pd, territory_radio):
     map_info[unit] = (
         map_info["territorial_unit"].str.split("(").str.get(0).str.strip()
     )
-
-    map_data = pd.merge(gdf_ne, map_info, on=unit, how="right")
-
-    # map_info
-    return map_data, map_info, unit
+    return map_info, unit
 
 
 if __name__ == "__main__":
