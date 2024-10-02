@@ -108,7 +108,7 @@ def __(df, mo, territory_radio):
 def __():
     datasource_dict = {
         "2023": "./data/raw/12411-03-03-2023.csv",
-        "2022": "./data/raw/12411-03-03-2022.csv",    
+        "2022": "./data/raw/12411-03-03-2022.csv",
         "2021": "./data/raw/12411-03-03-2021.csv",
         "2020": "./data/raw/12411-03-03-2020.csv",
         "2010": "./data/raw/12411-03-03-2010.csv",
@@ -123,6 +123,9 @@ def __():
         "Percentage of foreigners": "percentage_foreigner",
         "Percentage of males": "percentage_male",
         "Percentage of females": "percentage_female",
+        "Median age group (total population)": "median_total_population",
+        "Median age group (foreigners)": "median_foreign_population",
+        "Median age group (germans)": "median_german_population"
     }
     return datasource_dict, map_feature_dict
 
@@ -237,12 +240,11 @@ def __(alt, pd):
                 pd.DataFrame(
                     {
                         "agegroup": [median_left],
-                        "color": ["red"],
                     }
                 )
             )
-            .mark_rule()
-            .encode(y="agegroup", color=alt.Color("color:N", scale=None))
+            .mark_rule(color="red", strokeWidth=3.0)
+            .encode(y="agegroup:N")
         )
 
         left_graph = left_bar_graph + median_indicator_left
@@ -266,13 +268,12 @@ def __(alt, pd):
             alt.Chart(
                 pd.DataFrame(
                     {
-                        "agegroup": [f"{median_right}"],
-                        "color": ["red"],
+                        "agegroup": [median_right],
                     }
                 )
             )
-            .mark_rule()
-            .encode(y="agegroup", color=alt.Color("color:N", scale=None))
+            .mark_rule(color="red", strokeWidth=3.0)
+            .encode(y="agegroup:N")
         )
 
         middle = (
@@ -319,12 +320,11 @@ def __(alt, pd):
                 pd.DataFrame(
                     {
                         "age_group": [median],
-                        "color": ["red"],
                     }
                 )
             )
-            .mark_rule()
-            .encode(y="age_group", color=alt.Color("color:N", scale=None))
+            .mark_rule(color="red", strokeWidth=3.0)
+            .encode(y="age_group:N")
         )
 
         return bar_graph + median_indicator
@@ -758,24 +758,32 @@ def __(
     else:
         bz = "sb"
 
+    if map_feature_dict[map_feature.value] in ["median_total_population", "median_german_population", "median_foreign_population"]:
+        quant_desc = "N"
+        format_str = ""
+    else:
+        quant_desc = "Q"
+        format_str = ".2f"
+
+
     _chart = (
         alt.Chart(gdf_ne)
         .mark_geoshape(stroke="green", strokeWidth=0.5)
         .project(type="identity", reflectY=True)
         .encode(
             color=alt.Color(
-                f"{map_feature_dict[map_feature.value]}:Q",
+                f"{map_feature_dict[map_feature.value]}:{quant_desc}",
                 legend=alt.Legend(title=map_feature.value),
                 scale=alt.Scale(type="linear"),
             ),
             tooltip=[
                 alt.Tooltip(f"bez_{bz}:N", title=territory_radio.value),
                 alt.Tooltip("size:Q", title="Area (qkm)", format=".2f"),
-                alt.Tooltip("population_total:Q", title="Total population"),
+                alt.Tooltip(f"population_total:{quant_desc}", title="Total population"),
                 alt.Tooltip(
-                    f"{map_feature_dict[map_feature.value]}:Q",
+                    f"{map_feature_dict[map_feature.value]}:{quant_desc}",
                     title=map_feature.value,
-                    format=".2f",
+                    format=format_str,
                 ),
             ],
         )
@@ -789,13 +797,16 @@ def __(
                     "percentage_male",
                     "population_total",
                     "percentage_female",
+                    "median_total_population",
+                    "median_foreign_population",
+                    "median_german_population"
                 ],
             ),
         )
         .properties(title=f"{territory_radio.value}e", width=600, height=400)
     )
     map = mo.ui.altair_chart(_chart)
-    return bz, map
+    return bz, format_str, map, quant_desc
 
 
 @app.cell
@@ -809,7 +820,7 @@ def __(map_feature_dict, mo):
 
 
 @app.cell
-def __(df, territory_radio):
+def __(df, helper, territory_radio):
     map_info = (
         df.query(f"territorial_unit.str.contains('{territory_radio.value}')")
         .groupby(by=["territorial_unit"])
@@ -840,7 +851,48 @@ def __(df, territory_radio):
     map_info[unit] = (
         map_info["territorial_unit"].str.split("(").str.get(0).str.strip()
     )
+
+
+    map_info = (
+        map_info.assign(
+            median_total_population=lambda x: helper(
+                x.territorial_unit, "population_total"
+            )
+        )
+        .assign(
+            median_german_population=lambda x: helper(
+                x.territorial_unit, "german_total"
+            )
+        )
+        .assign(
+            median_foreign_population=lambda x: helper(
+                x.territorial_unit, "foreigner_total"
+            )
+        )
+    )
     return map_info, unit
+
+
+@app.cell
+def __(determine_median, df, pd):
+    def helper(territorial_unit, kind):
+
+        groups = []
+
+        for item in territorial_unit:
+            _result = determine_median(
+                agegroups=df.query(f"territorial_unit == '{item}'").query(
+                    "age_group != 'Insgesamt'"
+                )["age_group"],
+                population=df.query(
+                    f"territorial_unit == '{item}'"
+                ).query("age_group != 'Insgesamt'")[kind],
+            )
+            groups.append(_result)
+
+        
+        return pd.Series(groups)
+    return (helper,)
 
 
 if __name__ == "__main__":
